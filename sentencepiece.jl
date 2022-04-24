@@ -1,14 +1,14 @@
 module SentencePiece
 
-export load_vocab, pretokenize, viterbi_segment, forward, backward
+export load_vocab, tokenize
 
 import LogExpFunctions
 
 
-function load_vocab()
+function load_vocab(path::String)
     vocab = Dict{String,Float32}()
 
-    open("sentencepiece16k.vocab") do file
+    open(path) do file
         for line in eachline(file)
             token, logprob = split(line, "\t")
             vocab[token] = parse(Float32, logprob)
@@ -16,6 +16,7 @@ function load_vocab()
     end
     return vocab
 end
+
 
 function pretokenize(str::String)
     str = "▁" * replace(str, " " => "▁")
@@ -125,13 +126,53 @@ function backward(str::String, vocab::Dict{String, Float32})
 end
 
 
-function expected_counts(
+function token_expected_counts(
         token::String,
         token_count::Int,
+        max_subword_len::Int,
         vocab::Dict{String, Float32},
         expected_count_table::Dict{String, Float32})
     forward_probs = forward(token, vocab)
     backward_probs = backward(token, vocab)
+
+    points = collect(eachindex(str))
+    for subword_len in range(max_subword_len)
+        for start in range(length(points) - max_subword_len)
+            prefix_score = forward_probs[start]
+            suffix_score = backward_probs[start + subword_len]
+            subword = token[points[start]:points[start + subword_len]]
+        end
+    end
+end
+
+
+function tokenize(sentence::String, vocab::Dict{String, Float32})
+    tokens = pretokenize(sentence)
+    subwords = Vector{String}()
+    for token in tokens
+        fw_score = last(SentencePiece.forward(token, vocab))
+        bw_score = SentencePiece.backward(token, vocab)[1]
+
+        append!(subwords, SentencePiece.viterbi_segment(token, vocab))
+    end
+    return subwords
+end
+
+
+function get_token_counts(path::String)
+    token_counts = Dict{String,Float32}()
+
+    open(path) do file
+        for line in eachline(file)
+            for tok in pretokenize(line)
+                if !haskey(token_counts, tok)
+                    token_counts[token] = 0
+                end
+                token_counts[token] += 1
+            end
+        end
+    end
+    return token_counts
 end
 
 end
